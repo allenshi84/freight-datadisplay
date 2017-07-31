@@ -80,15 +80,27 @@ function scanDB() {
     // get device id from text input
     var textinput = document.getElementById('deviceidselect');
     var desireddevice = textinput.value; 
+    // get selected date from text input
+    var dateinput = document.getElementById('datepicker-1');
+    var desireddate = dateinput.value;
+    // get date + 1
+    var nextdate = new Date(desireddate);
+    nextdate.setDate(nextdate.getDate() + 1);
+    var months = ["01","02","03","04","05","06","07","08","09","10","11","12"];
+    var days = ["00","01","02","03","04","05","06","07","08","09","10","11","12","13","14","15","16","17","18","19","20","21","22","23","24","25","26","27","28","29","30","31"];
+    var nextdatestring = date.getFullYear() + "/" + months[date.getMonth()] + "/" + days[date.getDate()];
     // set query parameters
     var params = {
         TableName : "gpslog",
-        FilterExpression: "#deviceid = :deviceid",
+        FilterExpression: "(#deviceid = :deviceid) AND (#timestamp BETWEEN :date1 AND :date2)",
         ExpressionAttributeNames: {
             "#deviceid":"deviceid",
+            "#timestamp":"timestamp"
         },
         ExpressionAttributeValues: {
-            ":deviceid": desireddevice
+            ":deviceid": desireddevice,
+            ":date1": desireddate,
+            ":date2": nextdatestring
         }
     };
     // get table
