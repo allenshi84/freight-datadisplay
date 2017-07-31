@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.1.0/dist/leaflet.css"
+   integrity="sha512-wcw6ts8Anuw10Mzh9Ytw4pylW8+NAD4ch3lqm9lzAsTxg0GFeJgoAtxuCLREZSC5lUXdVyo/7yfsqFjQ4S+aKw=="
+   crossorigin=""/>
+<script src="https://sdk.amazonaws.com/js/aws-sdk-2.7.16.min.js"></script>
+<script>
+
+// AWS credentials
+AWS.config.region = 'ap-northeast-2'; // Region
+AWS.config.credentials = new AWS.CognitoIdentityCredentials({
+    IdentityPoolId: 'ap-northeast-2:e7eb4e9d-e309-48cf-bfc9-460d211c1195',
+});
+// Create dynamodb object
+var docClient = new AWS.DynamoDB.DocumentClient();
+
+// Get all possible device ids and add to select drop down
+function scanDeviceIDs(){
+    var idarray = [];
+    var params = {
+        TableName: "gpslog",
+        ProjectionExpression: "deviceid"
+    };
+
+    // scan for device ids
+    docClient.scan(params, onScan);
+    function onScan(err, data){
+        if (err) {
+            console.log(err);
+            document.getElementById('statustext').innerHTML += "Unable to get device IDs: " + "\n" + JSON.stringify(err, undefined, 2);
+        } else if (data != null) {
+            data.Items.forEach(function(item){
+                if (idarray.indexOf(item.deviceid) == -1) {
+                    idarray.push(item.deviceid);
+                }
+            })
+        }
+        if (typeof data.LastEvaluatedKey != "undefined") {
+            params.ExclusiveStartKey = data.LastEvaluatedKey;
+            docClient.scan(params, onScan);
+        } else {
+            processIDs(idarray);
+        }
+    };
+    // process ids and add to select input
+    function processIDs(idarray){
+        idarray.sort();
+        var selects = document.getElementById('deviceidselect');
+        idarray.forEach(function(item){
+            var opt = document.createElement("option");
+            opt.text = item;
+            selects.add(opt);
+        });
+    }
+}
+
+
+// call scan device id function
+scanDeviceIDs();
+
+// Function to scan dynamoDB
+function scanDB() {
+    // Create geojson to store coordinates
+    var geojson = {"type":"Feature",
+                 "geometry":{"type":"LineString",
+                             "coordinates": []
+                             }
+                };
+    // get device id from text input
+    var textinput = document.getElementById('deviceidselect');
+    var desireddevice = textinput.value; 
+    // set query parameters
+    var params = {
+        TableName : "gpslog",
+        FilterExpression: "#deviceid = :deviceid",
+        ExpressionAttributeNames: {
+            "#deviceid":"deviceid",
+        },
+        ExpressionAttributeValues: {
+            ":deviceid": desireddevice
+        }
+    };
+    // get table
+    var datatable = document.getElementById('datatable'); 
+    // clear table first
+    while(datatable.rows[1]) datatable.deleteRow(1);
+    // do actual scan
+    docClient.scan(params, onScan);
+    function onScan(err, data){
+        // handle results
+        if (err) {
+            console.log(err);
+            document.getElementById('statustext').innerHTML += "Unable to scan table: " + "\n" + JSON.stringify(err, undefined, 2);
+        } else if (data == null) {
+            console.log("null data")
+        } else {
+            //successful = true;
+            if (data.Items.length > 0) {
+                // Print all results
+                data.Items.forEach(function(item) {
+                    // create row, append to bottom of table
+                    var datarow = datatable.insertRow(-1);
+                    // insert new cells
+                    var deviceidcell = datarow.insertCell(-1);
+                    var timestampcell = datarow.insertCell(-1);
+                    var latloncell = datarow.insertCell(-1);
+                    var diffseccell = datarow.insertCell(-1);
+                    // write data to cells
+                    deviceidcell.innerHTML = item.deviceid;
+                    timestampcell.innerHTML = item.timestamp;
+                    latloncell.innerHTML = item.lat + ", " + item.lon;
+                    diffseccell.innerHTML = item.diffseconds + " seconds";
+                    // write coordinates to coordarray
+                    geojson.geometry.coordinates.push([item.lon,item.lat]);
+                });
+            }
+        }
+        if (typeof data.LastEvaluatedKey != "undefined") {
+            params.ExclusiveStartKey = data.LastEvaluatedKey;
+            docClient.scan(params, onScan);
+        } else {
+            console.log(geojson);
+            generateMap(geojson);
+        }
+    };
+}
+
+function generateMap(geojson){
+    // Leaflet stuff
+    var map = L.map('map', {center: [1.356445, 103.815119], zoom: 12});
+    L.tileLayer('http://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+    // Add coord array to geoJSON
+    var mystyle = {"color":"#000000","weight":5,"opacity":1};
+    L.geoJSON(geojson, {style: mystyle}).addTo(map);
+}
+</script>
+ <script src="https://unpkg.com/leaflet@1.1.0/dist/leaflet.js"
+   integrity="sha512-mNqn2Wg7tSToJhvHcqfzLMU6J4mkOImSPTxVZAdo+lcPlk+GhZmYgACEe0x35K7YzW1zJ7XyJV/TT1MrdXvMcA=="
+   crossorigin=""></script>
+</head>
+<body>
+    <H2>LTA Freight Tracker - GPS Records</H2>
+    <select id="deviceidselect" name="Device ID"></select>
+    <input id="scanbutton" type="button" value="Get data" onclick="scanDB();" />
+    <br><br>
+     <div id="map" style="height:600px; width: 800px"></div>
+    <table style="width:80%" id="datatable">
+        <tr id="headerrow"><th>Device ID</th><th>Timestamp</th><th>Latitude, Longitude</th><th>Seconds from last update</th></tr>
+    </table>
+    <br><br>
+    <p id="statustext" style="width:400px;height:40px"></p>
+</html>
+
